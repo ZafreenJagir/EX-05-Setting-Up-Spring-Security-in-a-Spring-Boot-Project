@@ -24,53 +24,161 @@ Run and test the app using a browser or Postman:
 Secure endpoints will prompt for username and password.
 
 ## PROGRAM CODE:
-###pom.xml (Dependencies)
-<dependencies>
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-web</artifactId>
-    </dependency>
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-security</artifactId>
-    </dependency>
-</dependencies>
-### SecurityConfig.java (Spring Boot 3.x / Spring Security 6+)
-@Configuration
-@EnableWebSecurity
-public class SecurityConfig {
-    @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        http
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/public").permitAll()
-                .anyRequest().authenticated()
-            )
-            .httpBasic();
-        return http.build();
-    }
 
-    @Bean
-    public InMemoryUserDetailsManager userDetailsService() {
-        UserDetails user = User.withDefaultPasswordEncoder()
-            .username("user")
-            .password("password")
-            .roles("USER")
-            .build();
-        return new InMemoryUserDetailsManager(user);
-    }
+LoginRequest.java
+```
+package com.example.demo;
+
+public class LoginRequest {
+
+    private String username;
+    private String password;
+
+    public String getUsername() { return username; }
+    public void setUsername(String username) { this.username = username; }
+
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
 }
-###HelloController.java
+
+```
+
+AuthController.java
+```
+package com.example.demo.Controller;
+
+import com.example.demo.LoginRequest;
+import com.example.demo.Security.JwtUtil;
+import org.springframework.web.bind.annotation.*;
+
 @RestController
-public class HelloController {
+@RequestMapping("/auth")
+public class AuthController {
 
-    @GetMapping("/public")
-    public String publicEndpoint() {
-        return "This is a public endpoint.";
+    @PostMapping("/login")
+    public String login(@RequestBody LoginRequest req) {
+
+        if ("admin".equals(req.getUsername())
+                && "1234".equals(req.getPassword())) {
+
+            return JwtUtil.generateToken(req.getUsername());
+        }
+
+        return "Invalid Credentials";
     }
 
-    @GetMapping("/private")
-    public String privateEndpoint() {
-        return "This is a secured endpoint. You are authenticated!";
+    @GetMapping("/hello")
+    public String hello() {
+        return "Hello JWT Secure API";
     }
 }
+```
+
+JWTFilter.java
+
+```
+package com.example.demo.Security;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+import java.util.Collections;
+
+public class JwtFilter extends OncePerRequestFilter {
+
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain
+    ) throws ServletException, IOException {
+
+        String header = request.getHeader("Authorization");
+
+        if (header != null && header.startsWith("Bearer ")) {
+
+            String token = header.substring(7);
+
+            if (JwtUtil.validate(token)) {
+
+                String username = JwtUtil.extractUsername(token);
+
+                UsernamePasswordAuthenticationToken auth =
+                        new UsernamePasswordAuthenticationToken(
+                                username,
+                                null,
+                                Collections.emptyList()
+                        );
+
+                SecurityContextHolder.getContext().setAuthentication(auth);
+            }
+        }
+
+        filterChain.doFilter(request, response);
+    }
+}
+
+```
+
+JwtUtil.java
+```
+package com.example.demo.Security;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+
+import javax.crypto.SecretKey;
+import java.util.Date;
+
+public class JwtUtil {
+
+    private static final String SECRET =
+            "mysecretkeymysecretkeymysecretkey123";
+
+    private static final SecretKey KEY =
+            Keys.hmacShaKeyFor(SECRET.getBytes());
+
+    public static String generateToken(String username) {
+        return Jwts.builder()
+                .subject(username)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60))
+                .signWith(KEY)
+                .compact();
+    }
+
+    public static String extractUsername(String token) {
+        return Jwts.parser()
+                .verifyWith(KEY)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .getSubject();
+    }
+
+    public static boolean validate(String token) {
+        try {
+            extractUsername(token);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+}
+
+```
+
+
+### OUTPUT:
+
+<img width="1440" height="857" alt="Screenshot 2026-06-04 060110" src="https://github.com/user-attachments/assets/1b1100d8-c820-463d-bb09-478cbffe4df0" />
+
+
+
+<img width="1446" height="898" alt="Screenshot 2026-06-04 060157" src="https://github.com/user-attachments/assets/39c257b6-20e4-445c-86b3-7cad04d047bb" />
